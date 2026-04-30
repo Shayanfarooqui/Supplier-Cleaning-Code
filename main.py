@@ -75,8 +75,13 @@ async def clean_suppliers(
         
         extra_clean = pd.DataFrame()
         if 'extra_uk' in saved_paths:
+            print(f"[DEBUG Extra UK] Uploaded filename: {saved_paths['extra_uk']}")
             extra_df = read_file_safely(saved_paths['extra_uk'])
+            print(f"[DEBUG Extra UK] Shape: {extra_df.shape}")
+            print(f"[DEBUG Extra UK] Columns: {extra_df.columns.tolist()}")
+            print(f"[DEBUG Extra UK] Brand sample: {extra_df['Brand'].head(3).tolist() if 'Brand' in extra_df.columns else 'NO BRAND COLUMN'}")
             extra_clean = clean_extra_uk(extra_df)
+            print(f"[DEBUG Extra UK] After clean shape: {extra_clean.shape}")
             analysis['Extra UK'] = {'before': len(extra_df), 'after': len(extra_clean), 'download': None}
         else:
             analysis['Extra UK'] = {'before': 0, 'after': 0, 'download': None}
