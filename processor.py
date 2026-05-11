@@ -166,7 +166,27 @@ def clean_chicken(info_df, cost_df):
 def clean_extra_uk(df):
     df = clean_column_names(df)
     df = df.fillna('')
-    
+
+    # ── New format: rename / clean Barcode_1 before any lookups ──────────────
+    # Rename Barcode_1 → Barcode and strip leading apostrophes
+    barcode1_col = next((c for c in df.columns if c.strip().lower() == 'barcode_1'), None)
+    if barcode1_col:
+        df[barcode1_col] = df[barcode1_col].astype(str).str.replace("'", "").str.strip()
+        df = df.rename(columns={barcode1_col: 'Barcode'})
+
+    # Drop new unwanted columns (case-insensitive, exact match)
+    new_drop_cols = ['account', 'category_path', 'barcode_2', 'assorted', 'currency']
+    cols_to_drop_new = [c for c in df.columns if c.strip().lower() in new_drop_cols]
+    df = df.drop(columns=cols_to_drop_new)
+
+    # Stock_Code header is used as provided (added to standardize_schema mapping)
+
+    # Rename SRP → RRP so existing price lookups continue to work
+    srp_col = next((c for c in df.columns if c.strip().lower() == 'srp'), None)
+    if srp_col:
+        df = df.rename(columns={srp_col: 'RRP'})
+    # ─────────────────────────────────────────────────────────────────────────
+
     def get_col(candidates):
         for c in df.columns:
             if c.lower().strip() in [x.lower() for x in candidates]:
@@ -177,7 +197,7 @@ def clean_extra_uk(df):
     brand_col = get_col(['Brand', 'Manufacturer', 'Product Brand'])
     barcode_col = get_col(['Barcode', 'UPC', 'EAN', 'Bar Code'])
     cost_col = get_col(['Cost', 'Cost Price', 'Unit Cost', 'Trade', 'QTrade'])
-    rrp_col = get_col(['RRP', 'Retail', 'Price', 'Retail Price'])
+    rrp_col = get_col(['RRP', 'SRP', 'Retail', 'Price', 'Retail Price'])
 
     if cat_col:
         exact_cats = ["TPK - PUMP SPARES", "TOPEAK - PUMPS MISC", "TOPEAK - BRACKETS", 
@@ -212,12 +232,13 @@ def clean_extra_uk(df):
     
     if barcode_col:
         mask_blank_barcode = df[barcode_col].astype(str).str.strip() == ''
+        
+        mask_invalid_price = pd.Series(False, index=df.index)
         for price_col in [cost_col, rrp_col]:
             if price_col:
-                mask_invalid_price = df[price_col].astype(str).str.strip().isin(['0', '0.0', '0.00', '#N/A', '#n/a', 'NA'])
-                df = df[~(mask_blank_barcode & mask_invalid_price)]
-                # Recompute mask_blank_barcode to match new df index
-                mask_blank_barcode = df[barcode_col].astype(str).str.strip() == ''
+                mask_invalid_price |= df[price_col].astype(str).str.strip().isin(['0', '0.0', '0.00', '#N/A', '#n/a', 'NA'])
+                
+        df = df[~(mask_blank_barcode & mask_invalid_price)]
                 
     df['Supplier'] = 'Extra UK'
     return df
@@ -369,7 +390,7 @@ def standardize_schema(df, supplier_name):
     column_mapping = {
         'UPC': ['UPC', 'EAN', 'Barcode', 'Bar Code'],
         'EAN': ['EAN', 'UPC', 'Barcode', 'Bar Code'], # Usually EAN and UPC are in same column
-        'Custom SKU': ['SKU', 'Product Code', 'Item Code', 'Part No', 'Part Number', 'Our Part No', 'Code'],
+        'Custom SKU': ['SKU', 'Stock Code', 'Stock_Code', 'Product Code', 'Item Code', 'Part No', 'Part Number', 'Our Part No', 'Code'],
         'Description': ['Description', 'Name', 'Title', 'Product Name', 'Item Name'],
         'Brand': ['Brand', 'Manufacturer', 'Product Brand'],
         'Category': ['Category', 'Product Category', 'Web Category'],
