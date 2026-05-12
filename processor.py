@@ -339,7 +339,9 @@ def clean_ison(df):
     elif qtrade_col:
         df['Cost Price'] = df[qtrade_col]
 
-    cols_to_drop = ["Date Updated", "Weight (g.)", "Approx Weight", "Pack", "MX", "Trade", "Qty", "Web Description"]
+    cols_to_drop = ["Date Updated", "Weight (g.)", "Approx Weight", "Pack", "MX", "Trade", "Qty",
+                    "Web Description", "Trade Price (£)", "Trade Price (Ã‚Â£)",
+                    "Quantity Break", "Manufacturer Part Code"]
     cols_to_drop_lower = {c.lower() for c in cols_to_drop}
     df = df.drop(columns=[c for c in df.columns if c.strip().lower() in cols_to_drop_lower])
 
