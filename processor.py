@@ -164,72 +164,64 @@ def clean_chicken(info_df, cost_df):
     return df
 
 def clean_extra_uk(df):
+    """
+    Cleans Extra UK supplier data according to updated rules.
+    
+    Key: Category_Path contains real categories, NOT the Category column.
+    Order: Apply row filters FIRST on Category_Path, THEN delete it.
+    """
     df = clean_column_names(df)
     df = df.fillna('')
+    
+    print(f"[DEBUG Extra UK] Initial shape: {df.shape}")
+    print(f"[DEBUG Extra UK] Columns: {df.columns.tolist()}")
 
-    # ── New format: rename / clean Barcode_1 before any lookups ──────────────
-    # Rename Barcode_1 → Barcode and strip leading apostrophes
-    barcode1_col = next((c for c in df.columns if c.strip().lower() == 'barcode_1'), None)
-    if barcode1_col:
-        df[barcode1_col] = df[barcode1_col].astype(str).str.replace("'", "").str.strip()
-        df = df.rename(columns={barcode1_col: 'Barcode'})
-
-    # Drop new unwanted columns (case-insensitive, exact match)
-    new_drop_cols = ['account', 'category_path', 'barcode_2', 'assorted', 'currency']
-    cols_to_drop_new = [c for c in df.columns if c.strip().lower() in new_drop_cols]
-    df = df.drop(columns=cols_to_drop_new)
-
-    # Stock_Code header is used as provided (added to standardize_schema mapping)
-
-    # Rename SRP → RRP so existing price lookups continue to work
-    srp_col = next((c for c in df.columns if c.strip().lower() == 'srp'), None)
-    if srp_col:
-        df = df.rename(columns={srp_col: 'RRP'})
-    # ─────────────────────────────────────────────────────────────────────────
-
+    # Helper function to find column by candidate names
     def get_col(candidates):
         for c in df.columns:
             if c.lower().strip() in [x.lower() for x in candidates]:
                 return c
         return None
-
-    cat_col = get_col(['Category', 'Product Category', 'Web Category'])
+    
+    # Get column references BEFORE deleting anything
+    cat_path_col = get_col(['Category_Path', 'Category Path'])
     brand_col = get_col(['Brand', 'Manufacturer', 'Product Brand'])
-    barcode_col = get_col(['Barcode', 'UPC', 'EAN', 'Bar Code'])
-    cost_col = get_col(['Cost', 'Cost Price', 'Unit Cost', 'Trade', 'QTrade'])
-    rrp_col = get_col(['RRP', 'SRP', 'Retail', 'Price', 'Retail Price'])
-
-    if cat_col:
-        exact_cats = ["TPK - PUMP SPARES", "TOPEAK - PUMPS MISC", "TOPEAK - BRACKETS", 
-                      "TOPEAK - LIGHTS 1", "TOPEAK - MUD GUARDS", "TOPEAK - PUMPS C02", 
-                      "TOPEAK - CAGES/BOTLS", "TOPEAK - BASKETS", "TOPEAK - PUMPS/FLOOR", 
-                      "TOPEAK - CAGES/NINJA", "TOPEAK - TRAILERS", "TOPEAK - WORKSTANDS", 
-                      "TOPEAK - CAGES TRIAT", "TOPEAK - PUMPS MTB", "TOPEAK - LIGHTS 2", 
-                      "TOPEAK - PUMPS ROAD", "TOPEAK - PUMPS/MORPH", "TOPEAK - BIKE COVERS", 
-                      "TOPEAK - CHILDSEATS", "ERGON MISC"]
+    barcode_col = get_col(['Barcode_1', 'Barcode', 'UPC', 'EAN', 'Bar Code'])
+    cost_col = get_col(['Your_Price', 'Your Price', 'Cost', 'Cost Price', 'Unit Cost', 'Trade', 'QTrade'])
+    rrp_col = get_col(['SRP', 'RRP', 'Retail', 'Price', 'Retail Price'])
+    
+    print(f"[DEBUG Extra UK] Column mapping - Category_Path: {cat_path_col}, Brand: {brand_col}, Barcode: {barcode_col}, Cost: {cost_col}, RRP: {rrp_col}")
+    
+    # APPLY ROW FILTERS FIRST (using Category_Path)
+    
+    # 1. Row Removal – Category Rules (using Category_Path)
+    if cat_path_col:
+        # Contains matches (case-insensitive)
         contains_cats = ["display", "tool", "bags", "backpacks", "apparel", "helmets", 
                          "shoe", "fizik spares", "insoles", "fizik misc"]
         
-        mask_exact = df[cat_col].astype(str).str.strip().str.upper().isin([x.upper() for x in exact_cats])
-        mask_contains = df[cat_col].astype(str).str.lower().str.contains('|'.join(contains_cats), regex=True, na=False)
-        df = df[~(mask_exact | mask_contains)]
+        print(f"[DEBUG Extra UK] Sample category_path values: {df[cat_path_col].unique()[:10].tolist()}")
         
-    if brand_col:
-        bad_brands = ["Bluegrass", "Chamois Butt'r", "Clif", "Delta", "Kids Ride Shotgun", 
-                      "MET", "Motorex", "Onguard", "Rockstop", "Squirt", "Veloforte", 
-                      "Moon Sport", "Orange Seal"]
-        mask_bad_brands = df[brand_col].astype(str).str.strip().str.lower().isin([x.lower() for x in bad_brands])
-        df = df[~mask_bad_brands]
-        
-    cols_to_drop = [c for c in df.columns if c.strip().lower() in ['order', 'box check', 'line total', 'filter size 2']]
-    # Also drop unnamed columns where all values are 0 (after replacing '' with NaN)
-    for c in df.columns:
-        if c.startswith('Unnamed:') or c.strip() == '':
-            if df[c].replace('', '0').astype(str).str.strip().eq('0').all():
-                cols_to_drop.append(c)
-                
-    df = df.drop(columns=list(set(cols_to_drop)))
+        mask_contains = df[cat_path_col].astype(str).str.lower().str.contains('|'.join(contains_cats), regex=True, na=False)
+        rows_to_remove_cat = mask_contains.sum()
+        print(f"[DEBUG Extra UK] Category filtering: contains={mask_contains.sum()}, total_remove={rows_to_remove_cat}")
+        df = df[~mask_contains]
+        print(f"[DEBUG Extra UK] After category drop shape: {df.shape}")
     
+    # 2. Row Removal – Brand Rules
+    if brand_col:
+        bad_brands = [
+            "Bluegrass", "Chamois Butt'r", "Clif", "Delta", "Kids Ride Shotgun", 
+            "MET", "Motorex", "Onguard", "Rockstop", "Squirt", "Veloforte", 
+            "Moon Sport", "Orange Seal"
+        ]
+        mask_bad_brands = df[brand_col].astype(str).str.strip().str.lower().isin([x.lower() for x in bad_brands])
+        rows_to_remove_brand = mask_bad_brands.sum()
+        print(f"[DEBUG Extra UK] Brand filtering: {rows_to_remove_brand} rows to remove")
+        df = df[~mask_bad_brands]
+        print(f"[DEBUG Extra UK] After brand drop shape: {df.shape}")
+    
+    # 3. Row Removal – Barcode & Pricing Rules
     if barcode_col:
         mask_blank_barcode = df[barcode_col].astype(str).str.strip() == ''
         
@@ -237,10 +229,42 @@ def clean_extra_uk(df):
         for price_col in [cost_col, rrp_col]:
             if price_col:
                 mask_invalid_price |= df[price_col].astype(str).str.strip().isin(['0', '0.0', '0.00', '#N/A', '#n/a', 'NA'])
-                
+        
+        rows_to_remove_pricing = (mask_blank_barcode & mask_invalid_price).sum()
+        print(f"[DEBUG Extra UK] Pricing filtering: blank_barcode={mask_blank_barcode.sum()}, invalid_price={mask_invalid_price.sum()}, both={rows_to_remove_pricing}")
         df = df[~(mask_blank_barcode & mask_invalid_price)]
-                
+        print(f"[DEBUG Extra UK] After pricing drop shape: {df.shape}")
+    
+    # NOW delete unwanted columns (AFTER all row filtering is done)
+    # Clean Barcode_1: remove apostrophes
+    barcode1_col = next((c for c in df.columns if c.strip().lower() == 'barcode_1'), None)
+    if barcode1_col:
+        df[barcode1_col] = df[barcode1_col].astype(str).str.replace("'", "").str.strip()
+    
+    # Drop specified unwanted columns
+    cols_to_drop = []
+    drop_candidates = [
+        'account', 'category_path', 'barcode_2', 'assorted', 'currency',
+        'each_2', 'qty_2', 'each_3', 'qty_3', 'each_4', 'qty_4',
+        'order', 'box check', 'line total', 'filter size 2'
+    ]
+    for col in df.columns:
+        if col.strip().lower() in drop_candidates:
+            cols_to_drop.append(col)
+    
+    for col in df.columns:
+        if col.startswith('Unnamed:') or col.strip() == '':
+            if df[col].replace('', '0').astype(str).str.strip().eq('0').all():
+                cols_to_drop.append(col)
+    
+    if cols_to_drop:
+        print(f"[DEBUG Extra UK] Dropping columns: {cols_to_drop}")
+        df = df.drop(columns=list(set(cols_to_drop)))
+    
+    print(f"[DEBUG Extra UK] After column drop shape: {df.shape}")
+    
     df['Supplier'] = 'Extra UK'
+    print(f"[DEBUG Extra UK] Final shape: {df.shape}")
     return df
 
 def clean_zyrofisher(df):
@@ -288,19 +312,24 @@ def clean_zyrofisher(df):
 def clean_ison(df):
     df = clean_column_names(df)
     df = df.fillna('')
-    
+
+    # Normalize em/en dashes to regular hyphens for robust matching
+    def norm(s):
+        return str(s).replace('–', '-').replace('—', '-').strip().lower()
+
     cat_col = next((c for c in df.columns if c.lower() in ['product category', 'category']), None)
     if cat_col:
-        bad_cats = ["Bikes – Complete", "Clothing", "Frames", "Promotionals & POS", 
-                    "Protective Clothing & Helmets", "Scooters & Unicycles", "Skateboards", 
+        bad_cats = ["Bikes - Complete", "Clothing", "Frames", "Promotionals & POS",
+                    "Protective Clothing & Helmets", "Scooters & Unicycles", "Skateboards",
                     "Tools", "Spokes & Nipples"]
-        mask_cats = df[cat_col].str.strip().str.lower().isin([x.lower() for x in bad_cats])
+        bad_cats_norm = {norm(x) for x in bad_cats}
+        mask_cats = df[cat_col].apply(lambda x: norm(x) in bad_cats_norm)
         df = df[~mask_cats]
 
     # Handle Cost Price BEFORE dropping Trade
     qtrade_col = next((c for c in df.columns if c.lower() == 'qtrade'), None)
     trade_col = next((c for c in df.columns if c.lower() == 'trade'), None)
-    
+
     if qtrade_col and trade_col:
         mask_qtrade_empty = df[qtrade_col].str.strip().isin(['', '0', '0.0', '0.00'])
         df['Cost Price'] = df[qtrade_col]
@@ -310,49 +339,53 @@ def clean_ison(df):
     elif qtrade_col:
         df['Cost Price'] = df[qtrade_col]
 
-    cols_to_drop = ["Date Updated", "Weight (g.)", "Pack", "MX", "Trade", "Qty"]
-    df = df.drop(columns=[c for c in df.columns if c.strip() in cols_to_drop])
-    
+    cols_to_drop = ["Date Updated", "Weight (g.)", "Approx Weight", "Pack", "MX", "Trade", "Qty", "Web Description"]
+    cols_to_drop_lower = {c.lower() for c in cols_to_drop}
+    df = df.drop(columns=[c for c in df.columns if c.strip().lower() in cols_to_drop_lower])
+
     # Product Group rules
     pg_col = next((c for c in df.columns if c.lower() == 'product group'), None)
     if pg_col:
+        # Remove any row whose Product Group contains "discontinued" or "cycle computers"
         mask_discontinued = df[pg_col].str.lower().str.contains('discontinued', na=False)
-        df = df[~mask_discontinued]
-        
+        mask_cycle_computers = df[pg_col].str.lower().str.contains('cycle computers', na=False)
+        df = df[~(mask_discontinued | mask_cycle_computers)]
+
         bad_pgs = [
-            "Bags – Bikepacking", "Bags – Discontinued", "Bags – Frame", "Bags – Handlebar", 
-            "Bags – Other", "Bags – Panniers", "Bags – Rack Packs", "Bags – Saddle", 
-            "Baskets", "Bells", "Bottom Brackets – Miscellaneous – Discontinued", 
-            "Bottom Brackets – Sealed – Discontinued", "Brake Pads – Rim Brake – Discontinued", 
-            "Carriers – Discontinued", "Chain Accessories – Discontinued", "Chain Devices – Discontinued", 
-            "Cycle Computers – Discontinued", "Cycle Computers – Spares", "Cycle Storage", 
-            "Discontinued Lines", "Forks – MTB & BMX – Discontinued", "Forks – Road & Hybrid – Discontinued", 
-            "Forks Spares – Discontinued", "Gears – Rear – Discontinued", "GPS & Phone Holders & Mounts", 
-            "Grips – MTB – Discontinued", "Hardware", "Hub Spares – Discontinued", "Lights – Battery", 
-            "Lights – Dynamo", "Lights – e-Bike", "Lights – Rechargeable", "Lights – Spares", 
-            "Locks – Cable", "Locks – Chain", "Locks – Home Security", "Locks – Shackle D-Type", 
-            "Locks & Security – Discontinued", "Luggage Rack Spares", "Luggage Racks – Front", 
-            "Luggage Racks – Rear", "Mirrors", "Multi Tools", "Number Plates – BMX", 
-            "Personal Care", "Pumps", "Puncture Repair", "Puncture Repair – Discontinued", 
-            "Reflective & Safety", "Reflectors", "Rims – 700c & 29\" – Discontinued", 
-            "Shop Supplies", "Stunt Pegs – BMX", "Stunt Pegs – BMX – Discontinued", 
-            "Trailer Spares", "Trailers", "Turbo & Home Trainers", "Water Bottle Cages", 
-            "Water Bottles", "Water Bottles – Discontinued", "Water Carriers & Hydration Packs – Spares"
+            "Bags - Bikepacking", "Bags - Discontinued", "Bags - Frame", "Bags - Handlebar",
+            "Bags - Other", "Bags - Panniers", "Bags - Rack Packs", "Bags - Saddle",
+            "Baskets", "Bells",
+            "Carriers - Discontinued", "Chain Accessories - Discontinued", "Chain Devices - Discontinued",
+            "Cycle Storage", "Discontinued Lines",
+            "Forks - MTB & BMX - Discontinued", "Forks - Road & Hybrid - Discontinued",
+            "Forks Spares - Discontinued", "Gears - Rear - Discontinued",
+            "GPS & Phone Holders & Mounts", "Grips - MTB - Discontinued", "Hardware",
+            "Hub Spares - Discontinued", "Lights - Battery", "Lights - Dynamo",
+            "Lights - e-Bike", "Lights - Rechargeable", "Lights - Spares",
+            "Locks - Cable", "Locks - Chain", "Locks - Home Security", "Locks - Shackle D-Type",
+            "Locks & Security - Discontinued", "Luggage Rack Spares", "Luggage Racks - Front",
+            "Luggage Racks - Rear", "Mirrors", "Multi Tools", "Number Plates - BMX",
+            "Personal Care", "Pumps", "Puncture Repair", "Puncture Repair - Discontinued",
+            "Reflective & Safety", "Reflectors", "Rims - 700c & 29\" - Discontinued",
+            "Shop Supplies", "Stunt Pegs - BMX", "Stunt Pegs - BMX - Discontinued",
+            "Trailer Spares", "Trailers", "Turbo & Home Trainers", "Water Bottle Cages",
+            "Water Bottles", "Water Bottles - Discontinued", "Water Carriers & Hydration Packs - Spares"
         ]
-        mask_bad_pgs = df[pg_col].str.strip().str.lower().isin([x.lower() for x in bad_pgs])
+        bad_pgs_norm = {norm(x) for x in bad_pgs}
+        mask_bad_pgs = df[pg_col].apply(lambda x: norm(x) in bad_pgs_norm)
         df = df[~mask_bad_pgs]
 
     # Exclude by Keyword 'Bag'
     name_col = next((c for c in df.columns if c.lower() in ['product name', 'name', 'title']), None)
     desc_col = next((c for c in df.columns if c.lower() in ['description', 'product description']), None)
-    
+
     if name_col:
         mask_bag_name = df[name_col].str.lower().str.contains(r'\bbag\b', regex=True, na=False)
         df = df[~mask_bag_name]
     if desc_col:
         mask_bag_desc = df[desc_col].str.lower().str.contains(r'\bbag\b', regex=True, na=False)
         df = df[~mask_bag_desc]
-        
+
     # Exclude by Brand
     brand_col = next((c for c in df.columns if c.lower() in ['product brand', 'brand', 'manufacturer']), None)
     if brand_col:
@@ -362,7 +395,7 @@ def clean_ison(df):
 
     # De-duplicate name by replacing color/weight/size
     color_col = next((c for c in df.columns if c.lower() == 'color'), None)
-    weight_col = next((c for c in df.columns if c.lower() in ['weight', 'weight (g.)']), None)
+    weight_col = next((c for c in df.columns if c.lower() in ['weight', 'weight (g.)', 'approx weight']), None)
     size_col = next((c for c in df.columns if c.lower() == 'size'), None)
     part_col = next((c for c in df.columns if c.lower() in ['our part no', 'part no', 'part number']), None)
     
