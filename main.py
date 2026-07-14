@@ -6,12 +6,10 @@ from fastapi.responses import FileResponse, JSONResponse
 import pandas as pd
 import shutil
 import uuid
-import pickle
 
 # Import our processing logic
 from processor import (
-    read_file_safely, clean_chicken, clean_extra_uk, clean_zyrofisher, clean_ison,
-    standardize_schema, apply_cross_supplier_rules, process_lightspeed_match
+    read_file_safely, clean_chicken, clean_extra_uk, clean_zyrofisher, clean_ison
 )
 
 app = FastAPI(title="Supplier Cleaning API")
@@ -98,73 +96,35 @@ async def clean_suppliers(
         else:
             analysis['Ison'] = {'before': 0, 'after': 0, 'download': None}
         
-        # 3. Standardize Schema
-        std_chicken = standardize_schema(chicken_clean, 'Chicken')
-        std_extra = standardize_schema(extra_clean, 'Extra UK')
-        std_zyro = standardize_schema(zyro_clean, 'Zyrofisher')
-        std_ison = standardize_schema(ison_clean, 'Ison')
-        
-        # 4. Cross-Supplier Rules
-        allowed_items, banned_items = apply_cross_supplier_rules(std_chicken, std_extra, std_zyro, std_ison)
-        
-        # 5. Save intermediate state
-        job_dir = os.path.join(RESULTS_DIR, job_id)
-        os.makedirs(job_dir, exist_ok=True)
-        
-        with open(os.path.join(job_dir, "allowed.pkl"), "wb") as f:
-            pickle.dump(allowed_items, f)
-        with open(os.path.join(job_dir, "banned.pkl"), "wb") as f:
-            pickle.dump(banned_items, f)
-        with open(os.path.join(job_dir, "box_qty.pkl"), "wb") as f:
-            pickle.dump(box_qty_df, f)
-        
-        # 6. Save cleaned data as downloadable CSV
-        cleaned_file = "Cleaned_Suppliers.csv"
-        allowed_items.to_csv(os.path.join(RESULTS_DIR, cleaned_file), index=False)
-        
-        # Save per-supplier cleaned CSVs for individual download
+        # 3. Save cleaned supplier outputs
         supplier_cleaned_map = {
             'Chicken': chicken_clean,
             'Extra UK': extra_clean,
             'Zyrofisher': zyro_clean,
             'Ison': ison_clean
         }
+
+        downloads = {}
         for supplier_name, supplier_df in supplier_cleaned_map.items():
-            print(f"[DEBUG] {supplier_name}: type={type(supplier_df).__name__}, len={len(supplier_df)}, empty={supplier_df.empty}")
             if not supplier_df.empty:
                 safe_name = supplier_name.replace(' ', '_')
                 per_file = f"{safe_name}.csv"
                 supplier_df.to_csv(os.path.join(RESULTS_DIR, per_file), index=False)
                 analysis[supplier_name]['download'] = f"/api/download/{per_file}"
-                print(f"[DEBUG] Saved {per_file}, download URL set")
-        
-        # Merge all cleaned supplier DataFrames into a single file
-        merged_parts = [df for df in supplier_cleaned_map.values() if not df.empty]
-        merged_download = None
-        if merged_parts:
-            merged_df = pd.concat(merged_parts, ignore_index=True)
-            merged_file = "Merged_Cleaned.csv"
-            merged_df.to_csv(os.path.join(RESULTS_DIR, merged_file), index=False)
-            merged_download = f"/api/download/{merged_file}"
-            print(f"[DEBUG] Saved merged file {merged_file} with {len(merged_df)} rows")
-        
-        print(f"[DEBUG] Final analysis: {analysis}")
-        
-        # Also save box qty if present
-        box_qty_file = "BoxQty_Exceptions.csv"
+                downloads[supplier_name] = f"/api/download/{per_file}"
+
+        box_qty_file = None
         if not box_qty_df.empty:
+            box_qty_file = "BoxQty_Exceptions.csv"
             box_qty_df.to_csv(os.path.join(RESULTS_DIR, box_qty_file), index=False)
-            
+            downloads['BoxQty_Exceptions'] = f"/api/download/{box_qty_file}"
+
         return JSONResponse({
-            "status": "success", 
+            "status": "success",
             "message": "Supplier files processed successfully.",
             "job_id": job_id,
             "analysis": analysis,
-            "downloads": {
-                "cleaned": f"/api/download/{cleaned_file}",
-                "merged": merged_download,
-                "box_qty": f"/api/download/{box_qty_file}" if not box_qty_df.empty else None
-            }
+            "downloads": downloads
         })
     except Exception as e:
         import traceback
@@ -180,60 +140,10 @@ async def compare_lightspeed(
     job_id: str = Form(...),
     lightspeed: UploadFile = File(...)
 ):
-    try:
-        job_dir = os.path.join(RESULTS_DIR, job_id)
-        if not os.path.exists(job_dir):
-            raise HTTPException(status_code=404, detail="Job ID not found or expired")
-            
-        # 1. Load intermediate DataFrames
-        with open(os.path.join(job_dir, "allowed.pkl"), "rb") as f:
-            allowed_items = pickle.load(f)
-        with open(os.path.join(job_dir, "banned.pkl"), "rb") as f:
-            banned_items = pickle.load(f)
-        with open(os.path.join(job_dir, "box_qty.pkl"), "rb") as f:
-            box_qty_df = pickle.load(f)
-            
-        # 2. Save Lightspeed temporarily
-        temp_dir = os.path.join(tempfile.gettempdir(), f"ls_hub_{job_id}")
-        os.makedirs(temp_dir, exist_ok=True)
-        ls_path = os.path.join(temp_dir, lightspeed.filename)
-        with open(ls_path, "wb") as buffer:
-            shutil.copyfileobj(lightspeed.file, buffer)
-            
-        # 3. Read and compare
-        ls_df = read_file_safely(ls_path)
-        matched_df, new_skus_df, outliers_df = process_lightspeed_match(allowed_items, banned_items, ls_df)
-        
-        # 4. Save Outputs Final
-        matched_file = "Matched_Items.csv"
-        new_skus_file = "New_SKUs.csv"
-        outliers_file = "Outliers.csv"
-        box_qty_file = "BoxQty_Exceptions.csv"
-        
-        matched_df.to_csv(os.path.join(RESULTS_DIR, matched_file), index=False)
-        new_skus_df.to_csv(os.path.join(RESULTS_DIR, new_skus_file), index=False)
-        outliers_df.to_csv(os.path.join(RESULTS_DIR, outliers_file), index=False)
-        box_qty_df.to_csv(os.path.join(RESULTS_DIR, box_qty_file), index=False)
-        
-        # Cleanup intermediate state if desired (commented out to safely let user download)
-        # shutil.rmtree(job_dir, ignore_errors=True)
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            
-        return JSONResponse({
-            "status": "success", 
-            "message": "Comparison complete.",
-            "downloads": {
-                "matched": f"/api/download/{matched_file}",
-                "new_skus": f"/api/download/{new_skus_file}",
-                "outliers": f"/api/download/{outliers_file}",
-                "box_qty": f"/api/download/{box_qty_file}"
-            }
-        })
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+    return JSONResponse({
+        "status": "error",
+        "message": "Lightspeed comparison is disabled until intermediate result storage is restored."
+    }, status_code=501)
 
 if __name__ == "__main__":
     import uvicorn
