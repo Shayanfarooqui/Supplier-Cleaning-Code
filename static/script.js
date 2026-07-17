@@ -1,7 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const dropzones = document.querySelectorAll('.dropzone');
-    const processBtn = document.getElementById('processBtn');
     const fileStore = {};
+    let selectedSupplier = null;
 
     // Toast Notification helper
     const showToast = (message, type = 'info') => {
@@ -13,21 +12,101 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 4000);
     };
 
+    // Screen Navigation
+    const showScreen = (screenId) => {
+        document.getElementById('homeScreen').classList.add('hidden');
+        document.getElementById('uploadScreen').classList.add('hidden');
+        document.getElementById('resultsScreen').classList.add('hidden');
+        document.getElementById(screenId).classList.remove('hidden');
+    };
+
+    // Supplier Selection
+    const supplierCards = document.querySelectorAll('.supplier-card');
+    supplierCards.forEach(card => {
+        card.addEventListener('click', () => {
+            selectedSupplier = card.dataset.supplier;
+
+            // Update title
+            const supplierName = card.querySelector('h3').textContent;
+            document.getElementById('supplierTitle').textContent = `Upload ${supplierName} Files`;
+
+            // Show appropriate file fields
+            document.querySelectorAll('.supplier-fields').forEach(f => f.classList.add('hidden'));
+            const fieldId = `${selectedSupplier}-fields`;
+            const fieldsElement = document.getElementById(fieldId);
+            if (fieldsElement) {
+                fieldsElement.classList.remove('hidden');
+            }
+
+            // Clear previous files
+            fileStore[selectedSupplier] = {};
+
+            showScreen('uploadScreen');
+        });
+    });
+
+    // File Handling
+    const setupDropzones = () => {
+        const dropzones = document.querySelectorAll('.dropzone');
+
+        dropzones.forEach(dropzone => {
+            const input = dropzone.querySelector('input[type="file"]');
+
+            // Click to browse
+            dropzone.addEventListener('click', (e) => {
+                if (e.target !== input) {
+                    input.click();
+                }
+            });
+
+            // File input change
+            input.addEventListener('change', (e) => {
+                handleFile(dropzone, e.target.files[0]);
+            });
+
+            // Drag and drop events
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.classList.add('drag-active');
+            });
+
+            dropzone.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('drag-active');
+            });
+
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('drag-active');
+
+                if (e.dataTransfer.files.length) {
+                    input.files = e.dataTransfer.files;
+                    handleFile(dropzone, e.dataTransfer.files[0]);
+                }
+            });
+        });
+    };
+
     const handleFile = (dropzone, file) => {
         if (!file) return;
-        
+
         // Basic validation
         const validExts = ['.csv', '.xlsx', '.xls'];
         const fileName = file.name;
         const ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
-        
+
         if (!validExts.includes(ext)) {
             showToast('Please upload a valid CSV or Excel file', 'error');
             return;
         }
 
         const inputName = dropzone.dataset.inputName;
-        fileStore[inputName] = file;
+
+        // Store file
+        if (!fileStore[selectedSupplier]) {
+            fileStore[selectedSupplier] = {};
+        }
+        fileStore[selectedSupplier][inputName] = file;
 
         // Update UI
         dropzone.classList.add('has-file');
@@ -35,53 +114,43 @@ document.addEventListener('DOMContentLoaded', () => {
         fileNameDiv.textContent = file.name;
     };
 
-    dropzones.forEach(dropzone => {
-        const input = dropzone.querySelector('input[type="file"]');
-        
-        // Click to browse
-        dropzone.addEventListener('click', (e) => {
-            if (e.target !== input) {
-                input.click();
-            }
-        });
+    setupDropzones();
 
-        // File input change
-        input.addEventListener('change', (e) => {
-            handleFile(dropzone, e.target.files[0]);
-        });
+    // Supplier Configuration
+    const supplierConfig = {
+        chicken: {
+            requiredFields: ['chicken_info', 'chicken_cost'],
+            apiEndpoint: '/api/clean',
+            files: ['chicken_info', 'chicken_cost']
+        },
+        extra_uk: {
+            requiredFields: ['extra_uk'],
+            apiEndpoint: '/api/clean_extra_uk',
+            files: ['extra_uk']
+        },
+        zyrofisher: {
+            requiredFields: ['zyrofisher'],
+            apiEndpoint: '/api/clean_zyrofisher',
+            files: ['zyrofisher']
+        },
+        ison: {
+            requiredFields: ['ison'],
+            apiEndpoint: '/api/clean_ison',
+            files: ['ison']
+        }
+    };
 
-        // Drag and drop events
-        dropzone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropzone.classList.add('drag-active');
-        });
-
-        dropzone.addEventListener('dragleave', (e) => {
-            e.preventDefault();
-            dropzone.classList.remove('drag-active');
-        });
-
-        dropzone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropzone.classList.remove('drag-active');
-            
-            if (e.dataTransfer.files.length) {
-                input.files = e.dataTransfer.files;
-                handleFile(dropzone, e.dataTransfer.files[0]);
-            }
-        });
-    });
-
-    let currentJobId = null;
-
-    // Handle Processing Step 1
+    // Process Button
+    const processBtn = document.getElementById('processBtn');
     processBtn.addEventListener('click', async () => {
-        // Validation: Ensure we have at least one supplier file
-        const supplierKeys = ['chicken_info', 'chicken_cost', 'extra_uk', 'zyrofisher', 'ison'];
-        const uploadedSuppliers = supplierKeys.filter(k => fileStore[k]);
-        
-        if (uploadedSuppliers.length === 0) {
-            showToast('Please upload at least one supplier file', 'error');
+        const config = supplierConfig[selectedSupplier];
+
+        // Validation: Check required fields
+        const supplierFiles = fileStore[selectedSupplier] || {};
+        const missingFields = config.requiredFields.filter(f => !supplierFiles[f]);
+
+        if (missingFields.length > 0) {
+            showToast(`Please upload all required files for ${selectedSupplier}`, 'error');
             return;
         }
 
@@ -92,11 +161,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const formData = new FormData();
-            for (const key of uploadedSuppliers) {
-                formData.append(key, fileStore[key]);
-            }
+            config.files.forEach(fileKey => {
+                if (supplierFiles[fileKey]) {
+                    formData.append(fileKey, supplierFiles[fileKey]);
+                }
+            });
 
-            const response = await fetch('/api/clean_suppliers', {
+            const response = await fetch(config.apiEndpoint, {
                 method: 'POST',
                 body: formData
             });
@@ -104,44 +175,33 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             if (response.ok) {
-                showToast('Supplier files cleaned successfully!', 'success');
-                
-                // Store job ID
-                currentJobId = data.job_id;
-                
-                // Update analysis table
-                const tbody = document.querySelector('#analysisTable tbody');
-                tbody.innerHTML = '';
-                if (data.analysis) {
-                    for (const [supplier, counts] of Object.entries(data.analysis)) {
-                        if (counts.before > 0 || counts.after > 0) {
-                            const tr = document.createElement('tr');
-                            const downloadCell = counts.download
-                                ? `<td><a href="${counts.download}" class="btn-download-sm" title="Download cleaned ${supplier} file"><i class="ph ph-download-simple"></i> CSV</a></td>`
-                                : `<td><span class="btn-download-sm disabled">N/A</span></td>`;
-                            tr.innerHTML = `
-                                <td>${supplier}</td>
-                                <td>${counts.before.toLocaleString()}</td>
-                                <td>${counts.after.toLocaleString()}</td>
-                                ${downloadCell}
-                            `;
-                            tbody.appendChild(tr);
-                        }
-                    }
+                showToast('Files cleaned successfully!', 'success');
+
+                // Update insights
+                if (data.insights) {
+                    document.getElementById('infoFileRows').textContent = (data.insights.info_file_rows || 0).toLocaleString();
+                    document.getElementById('costFileRows').textContent = (data.insights.cost_file_rows || 0).toLocaleString();
+                    document.getElementById('matchedWithPrice').textContent = (data.insights.matched_with_price || 0).toLocaleString();
+                    document.getElementById('missingVitalInfo').textContent = (data.insights.missing_vital_info || 0).toLocaleString();
+                    document.getElementById('removedRows').textContent = (data.insights.removed_rows || 0).toLocaleString();
+                    document.getElementById('finalCount').textContent = (data.after_rows || 0).toLocaleString();
                 }
-                
-                // Show merged file download if available
-                const mergedSection = document.getElementById('mergedDownloadSection');
-                if (data.downloads && data.downloads.merged) {
-                    document.getElementById('downloadMerged').href = data.downloads.merged;
-                    mergedSection.classList.remove('hidden');
+
+                // Update download links
+                if (data.downloads.cleaned) {
+                    document.getElementById('downloadCleaned').href = data.downloads.cleaned;
+                }
+
+                if (data.downloads.removed) {
+                    const removedCard = document.getElementById('downloadRemoved');
+                    removedCard.href = data.downloads.removed;
+                    removedCard.classList.remove('hidden');
                 } else {
-                    mergedSection.classList.add('hidden');
+                    document.getElementById('downloadRemoved').classList.add('hidden');
                 }
-                
-                // Transition UI to Step 2
-                document.getElementById('step1').classList.add('step-disabled');
-                document.getElementById('step2').classList.remove('hidden');
+
+                // Show results screen
+                showScreen('resultsScreen');
 
             } else {
                 throw new Error(data.message || 'Error processing files');
@@ -155,52 +215,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Handle Comparison Step 2
-    const compareBtn = document.getElementById('compareBtn');
-    if (compareBtn) {
-        compareBtn.addEventListener('click', async () => {
-            if (!fileStore['lightspeed'] || !currentJobId) {
-                showToast('Please upload Lightspeed Extract', 'error');
-                return;
-            }
+    // Back Button (from upload to home)
+    const backBtn = document.getElementById('backBtn');
+    backBtn.addEventListener('click', () => {
+        showScreen('homeScreen');
+        selectedSupplier = null;
+    });
 
-            const originalText = compareBtn.innerHTML;
-            compareBtn.innerHTML = '<i class="ph ph-spinner spinning"></i> Comparing...';
-            compareBtn.disabled = true;
-            document.getElementById('downloadsSection').classList.add('hidden');
-
-            try {
-                const formData = new FormData();
-                formData.append('job_id', currentJobId);
-                formData.append('lightspeed', fileStore['lightspeed']);
-
-                const response = await fetch('/api/compare_lightspeed', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    showToast('Comparison complete!', 'success');
-                    
-                    document.getElementById('downloadsSection').classList.remove('hidden');
-                    
-                    // Update download links
-                    document.getElementById('downloadMatched').href = data.downloads.matched;
-                    document.getElementById('downloadNew').href = data.downloads.new_skus;
-                    document.getElementById('downloadOutliers').href = data.downloads.outliers;
-                    document.getElementById('downloadBox').href = data.downloads.box_qty;
-                } else {
-                    throw new Error(data.message || 'Error comparing files');
-                }
-            } catch (error) {
-                console.error('Comparison error:', error);
-                showToast(error.message, 'error');
-            } finally {
-                compareBtn.innerHTML = originalText;
-                compareBtn.disabled = false;
-            }
-        });
-    }
+    // Home Button (from results to home)
+    const homeBtn = document.getElementById('homeBtn');
+    homeBtn.addEventListener('click', () => {
+        showScreen('homeScreen');
+        selectedSupplier = null;
+        fileStore = {};
+    });
 });

@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Supplier Data Processor</title>
+    <title>Fettle Supplier Cleaner</title>
     <link rel="stylesheet" href="/static/styles.css?v=4">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Phospor Icons for modern UI icons -->
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
 </head>
 <body>
@@ -14,168 +13,182 @@
         <header class="app-header">
             <div class="logo">
                 <i class="ph ph-stack"></i>
-                <h1>SupplierHub</h1>
+                <h1>Fettle Supplier Cleaner</h1>
             </div>
-            <p>Automated Supplier Cleaning & Sync to Lightspeed</p>
+            <p>Clean and process supplier data</p>
         </header>
 
         <main class="dashboard">
-            <div id="step1">
+            <!-- Home Screen - Supplier Selection -->
+            <div id="homeScreen">
+                <div class="step-header">
+                    <h2>Select a Supplier</h2>
+                </div>
+                <div class="supplier-grid">
+                    <div class="supplier-card" data-supplier="chicken">
+                        <i class="ph ph-egg"></i>
+                        <h3>Chicken</h3>
+                        <p>Process chicken supplier files</p>
+                    </div>
+                    <div class="supplier-card" data-supplier="extra_uk">
+                        <i class="ph ph-factory"></i>
+                        <h3>Extra UK</h3>
+                        <p>Process Extra UK supplier files</p>
+                    </div>
+                    <div class="supplier-card" data-supplier="zyrofisher">
+                        <i class="ph ph-storefront"></i>
+                        <h3>Zyrofisher</h3>
+                        <p>Process Zyrofisher supplier files</p>
+                    </div>
+                    <div class="supplier-card" data-supplier="ison">
+                        <i class="ph ph-package"></i>
+                        <h3>Ison</h3>
+                        <p>Process Ison supplier files</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload Screen - File Upload -->
+            <div id="uploadScreen" class="hidden">
                 <div class="step-header">
                     <span class="step-badge">1</span>
-                    <h2>Clean Suppliers</h2>
+                    <h2 id="supplierTitle">Upload Files</h2>
                 </div>
                 <form id="uploadForm" class="upload-grid">
-                    
-                    <!-- Chicken Product Info -->
-                    <div class="dropzone" id="dz-chicken-info" data-input-name="chicken_info">
-                        <input type="file" id="chicken_info" name="chicken_info" accept=".csv, .xlsx" hidden>
-                        <i class="ph ph-file-csv"></i>
-                        <h3>Chicken (Product Info)</h3>
-                        <p>Drag & Drop or <span class="browse">Browse</span></p>
-                        <div class="file-name"></div>
+                    <!-- Chicken Files -->
+                    <div id="chicken-fields" class="supplier-fields hidden">
+                        <div class="dropzone" id="dz-chicken-info" data-input-name="chicken_info">
+                            <input type="file" id="chicken_info" name="chicken_info" accept=".csv, .xlsx" hidden>
+                            <i class="ph ph-file-csv"></i>
+                            <h3>Chicken (Product Info)</h3>
+                            <p>Drag & Drop or <span class="browse">Browse</span></p>
+                            <div class="file-name"></div>
+                        </div>
+                        <div class="dropzone" id="dz-chicken-cost" data-input-name="chicken_cost">
+                            <input type="file" id="chicken_cost" name="chicken_cost" accept=".csv, .xlsx" hidden>
+                            <i class="ph ph-currency-gbp"></i>
+                            <h3>Chicken (Cost Price)</h3>
+                            <p>Drag & Drop or <span class="browse">Browse</span></p>
+                            <div class="file-name"></div>
+                        </div>
                     </div>
 
-                    <!-- Chicken Cost Price -->
-                    <div class="dropzone" id="dz-chicken-cost" data-input-name="chicken_cost">
-                        <input type="file" id="chicken_cost" name="chicken_cost" accept=".csv, .xlsx" hidden>
-                        <i class="ph ph-currency-gbp"></i>
-                        <h3>Chicken (Cost Price)</h3>
-                        <p>Drag & Drop or <span class="browse">Browse</span></p>
-                        <div class="file-name"></div>
+                    <!-- Extra UK Files -->
+                    <div id="extra_uk-fields" class="supplier-fields hidden">
+                        <div class="dropzone" id="dz-extra_uk" data-input-name="extra_uk">
+                            <input type="file" id="extra_uk" name="extra_uk" accept=".csv, .xlsx" hidden>
+                            <i class="ph ph-file-csv"></i>
+                            <h3>Extra UK</h3>
+                            <p>Drag & Drop or <span class="browse">Browse</span></p>
+                            <div class="file-name"></div>
+                        </div>
                     </div>
 
-                    <!-- Extra UK -->
-                    <div class="dropzone" id="dz-extra-uk" data-input-name="extra_uk">
-                        <input type="file" id="extra_uk" name="extra_uk" accept=".csv, .xlsx" hidden>
-                        <i class="ph ph-file-xls"></i>
-                        <h3>Extra UK</h3>
-                        <p>Drag & Drop or <span class="browse">Browse</span></p>
-                        <div class="file-name"></div>
+                    <!-- Zyrofisher Files -->
+                    <div id="zyrofisher-fields" class="supplier-fields hidden">
+                        <div class="dropzone" id="dz-zyrofisher" data-input-name="zyrofisher">
+                            <input type="file" id="zyrofisher" name="zyrofisher" accept=".csv, .xlsx" hidden>
+                            <i class="ph ph-file-csv"></i>
+                            <h3>Zyrofisher</h3>
+                            <p>Drag & Drop or <span class="browse">Browse</span></p>
+                            <div class="file-name"></div>
+                        </div>
                     </div>
 
-                    <!-- Zyrofisher -->
-                    <div class="dropzone" id="dz-zyrofisher" data-input-name="zyrofisher">
-                        <input type="file" id="zyrofisher" name="zyrofisher" accept=".csv, .xlsx" hidden>
-                        <i class="ph ph-file-csv"></i>
-                        <h3>Zyrofisher</h3>
-                        <p>Drag & Drop or <span class="browse">Browse</span></p>
-                        <div class="file-name"></div>
-                    </div>
-
-                    <!-- Ison -->
-                    <div class="dropzone" id="dz-ison" data-input-name="ison">
-                        <input type="file" id="ison" name="ison" accept=".csv, .xlsx" hidden>
-                        <i class="ph ph-file-csv"></i>
-                        <h3>Ison</h3>
-                        <p>Drag & Drop or <span class="browse">Browse</span></p>
-                        <div class="file-name"></div>
+                    <!-- Ison Files -->
+                    <div id="ison-fields" class="supplier-fields hidden">
+                        <div class="dropzone" id="dz-ison" data-input-name="ison">
+                            <input type="file" id="ison" name="ison" accept=".csv, .xlsx" hidden>
+                            <i class="ph ph-file-csv"></i>
+                            <h3>Ison</h3>
+                            <p>Drag & Drop or <span class="browse">Browse</span></p>
+                            <div class="file-name"></div>
+                        </div>
                     </div>
                 </form>
 
                 <div class="action-section">
                     <button id="processBtn" class="btn-primary">
-                        <i class="ph ph-magic-wand"></i> Process Supplier Files
+                        <i class="ph ph-magic-wand"></i> Process Files
+                    </button>
+                    <button id="backBtn" class="btn-secondary">
+                        <i class="ph ph-arrow-left"></i> Back to Home
                     </button>
                 </div>
             </div>
 
-            <!-- Results Section (Hidden by default) -->
-            <div id="step2" class="results-container hidden">
+            <!-- Results Screen -->
+            <div id="resultsScreen" class="results-container hidden">
                 <div class="step-header">
                     <span class="step-badge">2</span>
-                    <h2>Lightspeed Comparison</h2>
+                    <h2>Cleaning Results & Insights</h2>
                 </div>
 
-                <table class="analysis-table" id="analysisTable">
-                    <thead>
-                        <tr>
-                            <th>Supplier</th>
-                            <th>Before Cleaning</th>
-                            <th>After Cleaning</th>
-                            <th>Download</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Inserted via JS -->
-                    </tbody>
-                </table>
-
-                <!-- Merged File Download (hidden until cleaning completes) -->
-                <div id="mergedDownloadSection" class="merged-download-section hidden">
-                    <a href="#" class="result-card merged" id="downloadMerged">
-                        <i class="ph ph-files"></i>
-                        <div class="rc-details">
-                            <h4>Merged Cleaned File</h4>
-                            <span>All suppliers combined</span>
+                <!-- Insights Section -->
+                <div class="insights-section" id="insightsSection">
+                    <div class="insights-grid">
+                        <div class="insight-card">
+                            <div class="insight-label">Info File Rows</div>
+                            <div class="insight-value" id="infoFileRows">-</div>
                         </div>
-                        <i class="ph ph-download-simple download-icon"></i>
-                    </a>
-                </div>
-
-                <div class="upload-grid">
-                    <!-- Lightspeed Extract -->
-                    <div class="dropzone lightspeed-dz" id="dz-lightspeed" data-input-name="lightspeed">
-                        <input type="file" id="lightspeed" name="lightspeed" accept=".csv, .xlsx" hidden>
-                        <div class="ls-icon-wrapper"><i class="ph ph-storefront"></i></div>
-                        <div class="ls-text">
-                            <h3>Lightspeed Extract</h3>
-                            <p>Drag & Drop or <span class="browse">Browse</span></p>
-                            <div class="file-name"></div>
+                        <div class="insight-card">
+                            <div class="insight-label">Cost File Rows</div>
+                            <div class="insight-value" id="costFileRows">-</div>
+                        </div>
+                        <div class="insight-card">
+                            <div class="insight-label">Matched with Price</div>
+                            <div class="insight-value" id="matchedWithPrice">-</div>
+                        </div>
+                        <div class="insight-card">
+                            <div class="insight-label">Missing Vital Info</div>
+                            <div class="insight-value" id="missingVitalInfo">-</div>
+                        </div>
+                        <div class="insight-card">
+                            <div class="insight-label">Rows Removed</div>
+                            <div class="insight-value" id="removedRows">-</div>
+                        </div>
+                        <div class="insight-card">
+                            <div class="insight-label">Final Count</div>
+                            <div class="insight-value" id="finalCount">-</div>
                         </div>
                     </div>
                 </div>
 
-                <div class="action-section">
-                    <button id="compareBtn" class="btn-primary">
-                        <i class="ph ph-arrows-left-right"></i> Compare with Lightspeed
-                    </button>
-                </div>
-
-                <div id="downloadsSection" class="hidden">
-                    <h2 style="margin-top: 2.5rem; margin-bottom: 1.5rem; text-align: center;">Downloads</h2>
-                    <div class="results-grid">
-                        <a href="#" class="result-card matched" id="downloadMatched">
+                <!-- Download Section -->
+                <div class="download-section" style="margin-top: 2.5rem;">
+                    <h3>Downloads</h3>
+                    <div class="download-grid">
+                        <a href="#" class="download-card" id="downloadCleaned">
                             <i class="ph ph-check-circle"></i>
-                            <div class="rc-details">
-                                <h4>Matched Items</h4>
-                                <span>Matches LS Catalog</span>
+                            <div>
+                                <h4>Cleaned File</h4>
+                                <p>Ready to import</p>
                             </div>
-                            <i class="ph ph-download-simple download-icon"></i>
+                            <i class="ph ph-download-simple"></i>
                         </a>
-                        <a href="#" class="result-card new-sku" id="downloadNew">
-                            <i class="ph ph-plus-circle"></i>
-                            <div class="rc-details">
-                                <h4>New SKUs</h4>
-                                <span>To be added manually</span>
-                            </div>
-                            <i class="ph ph-download-simple download-icon"></i>
-                        </a>
-                        <a href="#" class="result-card outliers" id="downloadOutliers">
+                        <a href="#" class="download-card hidden" id="downloadRemoved">
                             <i class="ph ph-warning-circle"></i>
-                            <div class="rc-details">
-                                <h4>Outliers</h4>
-                                <span>Needs manual review</span>
+                            <div>
+                                <h4>Removed Items</h4>
+                                <p>Manual review needed</p>
                             </div>
-                            <i class="ph ph-download-simple download-icon"></i>
-                        </a>
-                        <a href="#" class="result-card box-qty" id="downloadBox">
-                            <i class="ph ph-package"></i>
-                            <div class="rc-details">
-                                <h4>BoxQuantity Exceptions</h4>
-                                <span>Zyrofisher bulk items</span>
-                            </div>
-                            <i class="ph ph-download-simple download-icon"></i>
+                            <i class="ph ph-download-simple"></i>
                         </a>
                     </div>
+                </div>
+
+                <div class="action-section" style="margin-top: 2rem;">
+                    <button id="homeBtn" class="btn-secondary">
+                        <i class="ph ph-home"></i> Return to Home
+                    </button>
                 </div>
             </div>
         </main>
     </div>
-    
+
     <!-- Toast Notification -->
     <div id="toast" class="toast hidden"></div>
 
-    <script src="/static/script.js?v=6"></script>
+    <script src="/static/script.js?v=8"></script>
 </body>
 </html>
