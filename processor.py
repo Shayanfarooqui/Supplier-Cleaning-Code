@@ -169,13 +169,17 @@ def clean_chicken(info_df, cost_df):
         contains_drop = ["apparel", "nutrition", "groupsets"]
         mask_contains = df[cat_col].str.lower().apply(lambda x: any(drop in x for drop in contains_drop))
         removal_mask = add_removals(mask_contains, 'Category contains apparel/nutrition/groupsets')
-        exact_drop_cats = ["Bikes & Frames", "Bikes", "E-Bikes", "Frames", "Bike Trailers"]
-        mask_exact = df[cat_col].str.strip().str.lower().isin([x.lower() for x in exact_drop_cats])
-        removal_mask = add_removals(mask_exact, 'Category removed')
+        # Category is a combination of sub-categories, so match on contains rather than exact
+        drop_cats = ["Bikes & Frames", "Bikes", "E-Bikes", "Frames", "Bike Trailers",
+                     "Frame Bags", "Bottles", "Bottle Cages", "Protection"]
+        cat_lower = df[cat_col].str.lower()
+        for drop_cat in drop_cats:
+            mask_drop_cat = cat_lower.str.contains(drop_cat.lower(), regex=False, na=False)
+            removal_mask = add_removals(mask_drop_cat, f'Category contains "{drop_cat}"')
 
     # Manufacturer filters - including NEW rules
     if mfg_col:
-        bad_mfgs = ["Ale Clothing", "Burley", "Cyclus Tools", "Datatag", "DMT Shoes", "Enervit", "Peruzzo", "Wera Tools", "Basso Bikes", "Basso", "Cinelli"]
+        bad_mfgs = ["Ale Clothing", "Burley", "Cyclus Tools", "Datatag", "DMT Shoes", "Enervit", "Peruzzo", "Wera Tools"]
         mask_bad_mfg = df[mfg_col].str.strip().str.lower().isin([x.lower() for x in bad_mfgs])
         removal_mask = add_removals(mask_bad_mfg, 'Manufacturer removed')
 
@@ -266,7 +270,8 @@ ISON_REMOVE_GROUPS = [
 ]
 
 ISON_DROP_COLUMNS = [
-    "Date Updated", "Approx Weight", "Pack", "MX", "Trade", "Web Description", "Unit"
+    "Date Updated", "Approx Weight", "Pack", "MX", "Trade", "Web Description", "Unit",
+    "DDLU", "Weight (g.)", "Note", "Q note", "Q Trade"
 ]
 
 def _normalize_dashes(val):
@@ -323,7 +328,15 @@ def clean_ison(df):
     all_removed['Removal Reason'] = removal_reason[removal_mask]
     df = df[~removal_mask].copy()
 
-    # 5. Delete columns if they exist
+    # 5. Cost Price: use Q Trade when present, otherwise fall back to Trade
+    trade_col = get_col('Trade')
+    q_trade_col = get_col('Q Trade')
+    if trade_col or q_trade_col:
+        trade = df[trade_col].astype(str).str.strip() if trade_col else pd.Series('', index=df.index)
+        q_trade = df[q_trade_col].astype(str).str.strip() if q_trade_col else pd.Series('', index=df.index)
+        df['Cost Price'] = q_trade.where(q_trade != '', trade)
+
+    # 6. Delete columns if they exist (Trade / Q Trade are dropped in favour of Cost Price)
     cols_to_drop = [c for c in df.columns if c in ISON_DROP_COLUMNS]
     df = df.drop(columns=cols_to_drop)
 
