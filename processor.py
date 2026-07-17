@@ -157,27 +157,34 @@ def clean_chicken(info_df, cost_df):
 
     # 3. Filter Out Unwanted Items
     removal_mask = pd.Series(False, index=df.index)
+    removal_reason = pd.Series('', index=df.index)
+
+    def add_removals(mask, reason):
+        new = mask & ~removal_mask
+        removal_reason[new] = reason
+        return removal_mask | mask
 
     # Category filters
     if cat_col:
         contains_drop = ["apparel", "nutrition", "groupsets"]
         mask_contains = df[cat_col].str.lower().apply(lambda x: any(drop in x for drop in contains_drop))
+        removal_mask = add_removals(mask_contains, 'Category contains apparel/nutrition/groupsets')
         exact_drop_cats = ["Bikes & Frames", "Bikes", "E-Bikes", "Frames", "Bike Trailers"]
         mask_exact = df[cat_col].str.strip().str.lower().isin([x.lower() for x in exact_drop_cats])
-        removal_mask |= (mask_contains | mask_exact)
+        removal_mask = add_removals(mask_exact, 'Category removed')
 
     # Manufacturer filters - including NEW rules
     if mfg_col:
         bad_mfgs = ["Ale Clothing", "Burley", "Cyclus Tools", "Datatag", "DMT Shoes", "Enervit", "Peruzzo", "Wera Tools", "Basso Bikes", "Basso", "Cinelli"]
         mask_bad_mfg = df[mfg_col].str.strip().str.lower().isin([x.lower() for x in bad_mfgs])
-        removal_mask |= mask_bad_mfg
+        removal_mask = add_removals(mask_bad_mfg, 'Manufacturer removed')
 
     # Mfg/Category empty combo filter
     if mfg_col and cat_col:
         target_mfgs = ["kmc", "peruzzo", "cinelli"]
         mask_target_mfg = df[mfg_col].str.strip().str.lower().isin(target_mfgs)
         mask_empty_cat = df[cat_col].str.strip() == ""
-        removal_mask |= (mask_target_mfg & mask_empty_cat)
+        removal_mask = add_removals(mask_target_mfg & mask_empty_cat, 'Manufacturer with empty category')
 
     # Price filters - including NEW rules (>= 1000)
     def safe_float(val):
@@ -190,15 +197,16 @@ def clean_chicken(info_df, cost_df):
     for price_col in [cost_col, rrp_col]:
         if price_col:
             mask_zero = df[price_col].str.strip().isin(['0', '0.0', '0.00', '#N/A', '#n/a', 'NA'])
-            removal_mask |= mask_zero
+            removal_mask = add_removals(mask_zero, f'Zero or N/A price ({price_col})')
 
             # NEW: Remove if price >= 1000
             prices = df[price_col].apply(safe_float)
             mask_expensive = prices >= 1000
-            removal_mask |= mask_expensive
+            removal_mask = add_removals(mask_expensive, f'Price >= 1000 ({price_col})')
 
     # Store removed items
     all_removed = df[removal_mask].copy()
+    all_removed['Removal Reason'] = removal_reason[removal_mask]
 
     # Remove filtered items
     df = df[~removal_mask]
@@ -219,6 +227,115 @@ def clean_chicken(info_df, cost_df):
     return df, all_removed, stats
 
 
+ISON_REMOVE_BRANDS = [
+    "Fidlock", "Cyclo", "Mucky Nutz", "Schwalbe", "Impac", "Draper", "Squire", "Happy Bottom"
+]
+
+ISON_REMOVE_CATEGORIES = [
+    "Bikes - Complete", "Clothing", "Frames", "Promotionals & POS",
+    "Protective Clothing & Helmets", "Scooters & Unicycles", "Skateboards",
+    "Tools", "Spokes & Nipples"
+]
+
+ISON_REMOVE_GROUPS = [
+    "Bags - Bikepacking", "Bags - Discontinued", "Bags - Frame", "Bags - Handlebar",
+    "Bags - Other", "Bags - Panniers", "Bags - Rack Packs", "Bags - Saddle",
+    "Baskets", "Bells",
+    "Bottom Brackets - Miscellaneous - Discontinued", "Bottom Brackets - Sealed - Discontinued",
+    "Brake Pads - Rim Brake - Discontinued", "Carriers - Discontinued",
+    "Chain Accessories - Discontinued", "Chain Devices - Discontinued",
+    "Cycle Computers - Discontinued", "Cycle Computers - Spares", "Cycle Storage",
+    "Discontinued Lines",
+    "Forks - MTB & BMX - Discontinued", "Forks - Road & Hybrid - Discontinued",
+    "Forks Spares - Discontinued", "Gears - Rear - Discontinued",
+    "GPS & Phone Holders & Mounts", "Grips - MTB - Discontinued", "Hardware",
+    "Hub Spares - Discontinued",
+    "Lights - Battery", "Lights - Dynamo", "Lights - e-Bike", "Lights - Rechargeable",
+    "Lights - Spares",
+    "Locks - Cable", "Locks - Chain", "Locks - Home Security", "Locks - Shackle D-Type",
+    "Locks & Security - Discontinued",
+    "Luggage Rack Spares", "Luggage Racks - Front", "Luggage Racks - Rear",
+    "Mirrors", "Multi Tools", "Number Plates - BMX", "Personal Care",
+    "Pumps", "Puncture Repair", "Puncture Repair - Discontinued",
+    "Reflective & Safety", "Reflectors",
+    'Rims - 700c & 29" - Discontinued', "Shop Supplies",
+    "Stunt Pegs - BMX", "Stunt Pegs - BMX - Discontinued",
+    "Trailer Spares", "Trailers", "Turbo & Home Trainers",
+    "Water Bottle Cages", "Water Bottles", "Water Bottles - Discontinued",
+    "Water Carriers & Hydration Packs - Spares"
+]
+
+ISON_DROP_COLUMNS = [
+    "Date Updated", "Approx Weight", "Pack", "MX", "Trade", "Web Description", "Unit"
+]
+
+def _normalize_dashes(val):
+    """Normalizes en/em dashes to plain hyphens so rule lists match real data."""
+    return str(val).replace("–", "-").replace("—", "-").strip()
+
+def clean_ison(df):
+    """
+    Cleans Ison supplier data. Rules are applied in order, matching is
+    case-sensitive; en/em dashes are treated the same as hyphens.
+    Returns: (cleaned_df, removed_df, stats)
+    """
+    df = clean_column_names(df)
+    df = df.fillna('')
+
+    stats = {'info_file_rows': len(df)}
+
+    def get_col(name):
+        matches = [c for c in df.columns if c.lower() == name.lower()]
+        return matches[0] if matches else None
+
+    brand_col = get_col('Product Brand')
+    group_col = get_col('Product Group')
+    cat_col = get_col('Product Category')
+
+    removal_mask = pd.Series(False, index=df.index)
+    removal_reason = pd.Series('', index=df.index)
+
+    def add_removals(mask, reason):
+        new = mask & ~removal_mask
+        removal_reason[new] = reason
+        return removal_mask | mask
+
+    # 1. Remove items by Product Brand (exact match)
+    if brand_col:
+        brands = df[brand_col].map(_normalize_dashes)
+        removal_mask = add_removals(brands.isin([_normalize_dashes(b) for b in ISON_REMOVE_BRANDS]), 'Brand removed')
+
+    # 2. Remove discontinued products (Product Group contains "Discontinued")
+    if group_col:
+        removal_mask = add_removals(df[group_col].astype(str).str.contains('Discontinued', case=True, na=False), 'Discontinued product group')
+
+    # 3. Remove items by Product Category (exact match)
+    if cat_col:
+        cats = df[cat_col].map(_normalize_dashes)
+        removal_mask = add_removals(cats.isin([_normalize_dashes(c) for c in ISON_REMOVE_CATEGORIES]), 'Category removed')
+
+    # 4. Remove items by Product Group (exact match)
+    if group_col:
+        groups = df[group_col].map(_normalize_dashes)
+        removal_mask = add_removals(groups.isin([_normalize_dashes(g) for g in ISON_REMOVE_GROUPS]), 'Product group removed')
+
+    all_removed = df[removal_mask].copy()
+    all_removed['Removal Reason'] = removal_reason[removal_mask]
+    df = df[~removal_mask].copy()
+
+    # 5. Delete columns if they exist
+    cols_to_drop = [c for c in df.columns if c in ISON_DROP_COLUMNS]
+    df = df.drop(columns=cols_to_drop)
+
+    stats['removed_rows'] = len(all_removed)
+    stats['dropped_columns'] = cols_to_drop
+
+    df['Supplier'] = 'Ison'
+    all_removed['Supplier'] = 'Ison (Removed)'
+
+    return df, all_removed, stats
+
+
 # ===== COMMENTED OUT - NOT IN USE =====
 # def clean_extra_uk(df):
 #     """
@@ -227,9 +344,6 @@ def clean_chicken(info_df, cost_df):
 #     pass
 #
 # def clean_zyrofisher(df):
-#     pass
-#
-# def clean_ison(df):
 #     pass
 #
 # def standardize_schema(df, supplier_name):
