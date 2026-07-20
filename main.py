@@ -7,7 +7,7 @@ import pandas as pd
 import shutil
 import uuid
 
-from processor import read_file_safely, clean_chicken, clean_ison
+from processor import read_file_safely, clean_chicken, clean_ison, clean_zyrofisher
 
 app = FastAPI(title="Chicken Supplier Cleaning API")
 
@@ -167,6 +167,79 @@ async def clean_ison_file(ison: UploadFile = File(None)):
             },
             "before_rows": int(len(ison_df)),
             "after_rows": int(len(ison_clean)),
+            "download": f"/api/download/{output_file}",
+            "downloads": downloads
+        })
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(error_trace)
+        return JSONResponse({
+            "status": "error",
+            "message": f"Error: {str(e)}",
+            "detail": error_trace
+        }, status_code=500)
+    finally:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+@app.post("/api/clean_zyrofisher")
+async def clean_zyrofisher_files(
+    zyro_info: UploadFile = File(None),
+    zyro_price: UploadFile = File(None)
+):
+    job_id = str(uuid.uuid4())
+    temp_dir = os.path.join(tempfile.gettempdir(), f"zyro_clean_{job_id}")
+    os.makedirs(temp_dir, exist_ok=True)
+
+    try:
+        if not (zyro_info and getattr(zyro_info, "filename", None)) or \
+           not (zyro_price and getattr(zyro_price, "filename", None)):
+            return JSONResponse({"status": "error", "message": "Please upload both the Info and Price files"}, status_code=400)
+
+        info_path = os.path.join(temp_dir, zyro_info.filename)
+        with open(info_path, "wb") as buffer:
+            shutil.copyfileobj(zyro_info.file, buffer)
+
+        price_path = os.path.join(temp_dir, zyro_price.filename)
+        with open(price_path, "wb") as buffer:
+            shutil.copyfileobj(zyro_price.file, buffer)
+
+        info_df = read_file_safely(info_path)
+        price_df = read_file_safely(price_path)
+
+        if info_df.empty and price_df.empty:
+            return JSONResponse({"status": "error", "message": "No data in files"}, status_code=400)
+
+        zyro_clean, removed_items, stats = clean_zyrofisher(info_df, price_df)
+
+        if zyro_clean.empty:
+            return JSONResponse({"status": "error", "message": "No data after cleaning"}, status_code=400)
+
+        output_file = "Zyrofisher_Cleaned.csv"
+        zyro_clean.to_csv(os.path.join(RESULTS_DIR, output_file), index=False)
+
+        removed_file = "Zyrofisher_Removed_Items.csv"
+        if not removed_items.empty:
+            removed_items.to_csv(os.path.join(RESULTS_DIR, removed_file), index=False)
+
+        downloads = {"cleaned": f"/api/download/{output_file}"}
+        if not removed_items.empty:
+            downloads["removed"] = f"/api/download/{removed_file}"
+
+        return JSONResponse({
+            "status": "success",
+            "message": "Files cleaned successfully",
+            "job_id": job_id,
+            "insights": {
+                "info_file_rows": int(stats.get('info_file_rows', 0)),
+                "cost_file_rows": int(stats.get('cost_file_rows', 0)),
+                "matched_with_price": int(stats.get('matched_with_price', 0)),
+                "missing_vital_info": 0,
+                "removed_rows": int(stats.get('removed_rows', 0))
+            },
+            "before_rows": int(len(info_df)),
+            "after_rows": int(len(zyro_clean)),
             "download": f"/api/download/{output_file}",
             "downloads": downloads
         })

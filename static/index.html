@@ -86,10 +86,17 @@
 
                     <!-- Zyrofisher Files -->
                     <div id="zyrofisher-fields" class="supplier-fields hidden">
-                        <div class="dropzone" id="dz-zyrofisher" data-input-name="zyrofisher">
-                            <input type="file" id="zyrofisher" name="zyrofisher" accept=".csv, .xlsx" hidden>
+                        <div class="dropzone" id="dz-zyro-info" data-input-name="zyro_info">
+                            <input type="file" id="zyro_info" name="zyro_info" accept=".csv, .xlsx" hidden>
                             <i class="ph ph-file-csv"></i>
-                            <h3>Zyrofisher</h3>
+                            <h3>Zyrofisher (Product Info)</h3>
+                            <p>Drag & Drop or <span class="browse">Browse</span></p>
+                            <div class="file-name"></div>
+                        </div>
+                        <div class="dropzone" id="dz-zyro-price" data-input-name="zyro_price">
+                            <input type="file" id="zyro_price" name="zyro_price" accept=".csv, .xlsx" hidden>
+                            <i class="ph ph-currency-gbp"></i>
+                            <h3>Zyrofisher (Price)</h3>
                             <p>Drag & Drop or <span class="browse">Browse</span></p>
                             <div class="file-name"></div>
                         </div>
@@ -189,6 +196,6 @@
     <!-- Toast Notification -->
     <div id="toast" class="toast hidden"></div>
 
-    <script src="/static/script.js?v=8"></script>
+    <script src="/static/script.js?v=9"></script>
 </body>
 </html>

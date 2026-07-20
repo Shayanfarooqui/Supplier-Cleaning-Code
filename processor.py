@@ -349,14 +349,115 @@ def clean_ison(df):
     return df, all_removed, stats
 
 
+ZYRO_REMOVE_BRANDS = [
+    "Blackburn", "Bleedkit", "Bryton", "CatEye", "Cyclo", "EVOC", "Hamax",
+    "Hiplok", "Joe's No Flats", "Leatt", "Minoura", "Mistral", "SIGG",
+    "Time Sport", "UNIOR", "Weldtite", "Camelback", "Altura", "Giro"
+]
+
+ZYRO_REMOVE_CATEGORIES = [
+    "Bags and Baskets", "BIKES", "Bottle Cages", "Bottles", "Car Racks",
+    "Child Seats", "Child Transport Trailers", "Cleaners & Degreasers",
+    "Cleaning Tools", "Clothing", "Cycling Computers and GPS",
+    "Energy & Recovery Food & Drink", "Goggles", "Helmets", "Hydration Systems",
+    "Lubes & Grease", "Map Holders", "Mirrors", "Phone & Accessory Mounts",
+    "POS", "PROTECTION", "Pumps and CO2", "Puncture Protection",
+    "Puncture Repair", "Racks", "Reflectors", "Shoes", "Sunglasses",
+    "Toe Clips and Straps", "Tools", "Trainers and Rollers",
+    "Travel/Storage Solutions", "Value Packs", "Workstands"
+]
+
+ZYRO_DROP_COLUMNS = [
+    "VatCode", "StockIndicator", "StockDueIn", "BriefDescription",
+    "LongDescription", "ImageUrl", "OrangePrice", "BronzePrice", "SilverPrice"
+]
+
+def clean_zyrofisher(info_df, price_df):
+    """
+    Cleans Zyrofisher supplier data. Info and Price files are matched on
+    Info.SKU -> Price.ProductCode, then rules are applied in order:
+    brand filter, category filter, box-quantity removal, column removal.
+    Both barcode columns are kept for now.
+    Returns: (cleaned_df, removed_df, stats)
+    """
+    info_df = clean_column_names(info_df)
+    price_df = clean_column_names(price_df)
+    info_df = info_df.fillna('')
+    price_df = price_df.fillna('')
+
+    stats = {'info_file_rows': len(info_df), 'cost_file_rows': len(price_df)}
+
+    def get_col(frame, *names):
+        for name in names:
+            matches = [c for c in frame.columns if c.lower().replace(' ', '') == name.lower().replace(' ', '')]
+            if matches:
+                return matches[0]
+        return None
+
+    # 1. Merge: Info.SKU -> Price.ProductCode
+    sku_col = get_col(info_df, 'SKU')
+    product_code_col = get_col(price_df, 'ProductCode')
+
+    if sku_col and product_code_col:
+        price_subset = price_df.rename(columns={product_code_col: sku_col})
+        df = pd.merge(info_df, price_subset, on=sku_col, how='left', suffixes=('', ' (Price)'))
+        matched_mask = info_df[sku_col].isin(price_df[product_code_col])
+        stats['matched_with_price'] = int(matched_mask.sum())
+    else:
+        df = info_df.copy()
+        stats['matched_with_price'] = 0
+        print("Warning: Could not find SKU/ProductCode columns to merge Zyrofisher files.")
+
+    df = df.fillna('')
+
+    removal_mask = pd.Series(False, index=df.index)
+    removal_reason = pd.Series('', index=df.index)
+
+    def add_removals(mask, reason):
+        new = mask & ~removal_mask
+        removal_reason[new] = reason
+        return removal_mask | mask
+
+    # 2. Brand filter (exact match)
+    brand_col = get_col(df, 'Brand')
+    if brand_col:
+        brands = df[brand_col].astype(str).str.strip().str.lower()
+        removal_mask = add_removals(brands.isin([b.lower() for b in ZYRO_REMOVE_BRANDS]), 'Brand removed')
+
+    # 3. Category filter (exact match)
+    cat_col = get_col(df, 'Category')
+    if cat_col:
+        cats = df[cat_col].astype(str).str.strip().str.lower()
+        removal_mask = add_removals(cats.isin([c.lower() for c in ZYRO_REMOVE_CATEGORIES]), 'Category removed')
+
+    # 4. Box quantity: remove records that have a value
+    box_col = get_col(df, 'BoxQuantity', 'Box Qty')
+    if box_col:
+        has_box_qty = df[box_col].astype(str).str.strip() != ''
+        removal_mask = add_removals(has_box_qty, 'Has box quantity')
+
+    all_removed = df[removal_mask].copy()
+    all_removed['Removal Reason'] = removal_reason[removal_mask]
+    df = df[~removal_mask].copy()
+
+    # 5. Column removal
+    cols_to_drop = [c for c in df.columns if c.strip() in ZYRO_DROP_COLUMNS]
+    df = df.drop(columns=cols_to_drop)
+
+    stats['removed_rows'] = len(all_removed)
+    stats['dropped_columns'] = cols_to_drop
+
+    df['Supplier'] = 'Zyrofisher'
+    all_removed['Supplier'] = 'Zyrofisher (Removed)'
+
+    return df, all_removed, stats
+
+
 # ===== COMMENTED OUT - NOT IN USE =====
 # def clean_extra_uk(df):
 #     """
 #     Cleans Extra UK supplier data according to updated rules.
 #     """
-#     pass
-#
-# def clean_zyrofisher(df):
 #     pass
 #
 # def standardize_schema(df, supplier_name):

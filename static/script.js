@@ -129,9 +129,9 @@ document.addEventListener('DOMContentLoaded', () => {
             files: ['extra_uk']
         },
         zyrofisher: {
-            requiredFields: ['zyrofisher'],
+            requiredFields: ['zyro_info', 'zyro_price'],
             apiEndpoint: '/api/clean_zyrofisher',
-            files: ['zyrofisher']
+            files: ['zyro_info', 'zyro_price']
         },
         ison: {
             requiredFields: ['ison'],
