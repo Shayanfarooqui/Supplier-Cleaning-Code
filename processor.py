@@ -271,7 +271,7 @@ ISON_REMOVE_GROUPS = [
 
 ISON_DROP_COLUMNS = [
     "Date Updated", "Approx Weight", "Pack", "MX", "Trade", "Web Description", "Unit",
-    "DDLU", "Weight (g.)", "Note", "Q note", "Q Trade"
+    "DDLU", "Weight (g.)", "Note", "Q note", "Q Trade", "Qty"
 ]
 
 def _normalize_dashes(val):
