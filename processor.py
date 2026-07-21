@@ -368,8 +368,8 @@ ZYRO_REMOVE_CATEGORIES = [
 ]
 
 ZYRO_DROP_COLUMNS = [
-    "VatCode", "StockIndicator", "StockDueIn", "BriefDescription",
-    "LongDescription", "ImageUrl", "OrangePrice", "BronzePrice", "SilverPrice"
+    "VATNotes", "StockIndicator", "StockDueIn", "BriefDescription",
+    "LongDescription", "ImageUrl", "OrangePrice", "BronzePrice", "SilverPrice", "Currency", "BoxQuantity", "CurrencyCode",
 ]
 
 def clean_zyrofisher(info_df, price_df):
