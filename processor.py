@@ -11,18 +11,21 @@ def read_file_safely(path):
     if ext in ['.xlsx', '.xls']:
         return pd.read_excel(path, dtype=str)
 
-    # Common encodings for Windows CSVs
+    # Common encodings for Windows CSVs.
+    # index_col=False stops pandas from treating leading columns as a row index
+    # when data rows have extra trailing delimiters (which otherwise shifts every
+    # column left, e.g. the Extra UK pricelist has ~7 trailing commas per row).
     tried = []
     for enc in ["utf-8", "utf-8-sig", "windows-1252", "latin-1"]:
         try:
-            return pd.read_csv(path, encoding=enc, dtype=str)
+            return pd.read_csv(path, encoding=enc, dtype=str, index_col=False)
         except Exception as e:
             tried.append(f"{enc}: {str(e)[:50]}")
             continue
 
     # As a last resort, try replacing bad bytes
     try:
-        return pd.read_csv(path, encoding="windows-1252", encoding_errors="replace", dtype=str)
+        return pd.read_csv(path, encoding="windows-1252", encoding_errors="replace", dtype=str, index_col=False)
     except Exception as e:
         raise ValueError(f"Could not read {path}. Errors: {tried}")
 
@@ -542,7 +545,7 @@ def clean_extra_uk(df):
     cat_col = get_col('Category')
     brand_col = get_col('Brand')
     barcode_col = get_col('Barcode_1', 'Barcode 1', 'Barcode1', 'Barcode')
-    cost_col = get_col('Cost Price', 'CostPrice')
+    cost_col = get_col('Cost Price', 'CostPrice', 'Your Price', 'Your_Price')
     srp_col = get_col('SRP')
 
     removal_mask = pd.Series(False, index=df.index)
