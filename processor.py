@@ -278,6 +278,29 @@ def _normalize_dashes(val):
     """Normalizes en/em dashes to plain hyphens so rule lists match real data."""
     return str(val).replace("–", "-").replace("—", "-").strip()
 
+def _normalize_apostrophes(val):
+    """Normalizes curly apostrophes to straight ones (e.g. Chamois Butt'r)."""
+    return str(val).replace("’", "'").replace("‘", "'")
+
+def _is_zero(val):
+    """True if the value is numerically zero (ignoring currency symbols/commas)."""
+    s = re.sub(r'[^\d.\-]', '', str(val).strip())
+    if s in ('', '-', '.', '-.'):
+        return False
+    try:
+        return float(s) == 0.0
+    except ValueError:
+        return False
+
+def _is_zero_or_na(val):
+    """True if the value is 0 or an #N/A style marker (blank does NOT count)."""
+    s = str(val).strip()
+    if s == '':
+        return False
+    if s.lower() in ('#n/a', 'n/a', 'na', '#na'):
+        return True
+    return _is_zero(s)
+
 def clean_ison(df):
     """
     Cleans Ison supplier data. Rules are applied in order, matching is
@@ -453,13 +476,143 @@ def clean_zyrofisher(info_df, price_df):
     return df, all_removed, stats
 
 
+EXTRA_REMOVE_CATEGORIES_EXACT = [
+    "TPK - PUMP SPARES",
+    "TOPEAK - PUMPS MISC",
+    "TOPEAK - BRACKETS",
+    "TOPEAK - LIGHTS 1",
+    "TOPEAK - MUD GUARDS",
+    "TOPEAK - PUMPS C02",
+    "TOPEAK - CAGES/BOTLS",
+    "TOPEAK - BASKETS",
+    "TOPEAK - PUMPS/FLOOR",
+    "TOPEAK - CAGES/NINJA",
+    "TOPEAK - TRAILERS",
+    "TOPEAK - WORKSTANDS",
+    "TOPEAK - CAGES TRIAT",
+    "TOPEAK - PUMPS MTB",
+    "TOPEAK - LIGHTS 2",
+    "TOPEAK - PUMPS ROAD",
+    "TOPEAK - PUMPS/MORPH",
+    "TOPEAK - BIKE COVERS",
+    "TOPEAK - CHILDSEATS",
+    "ERGON MISC",
+]
+
+EXTRA_REMOVE_CATEGORIES_CONTAINS = [
+    "display", "tool", "bags", "backpacks", "clothing", "helmets",
+    "shoe", "FIZIK SHOES", "FIZIK 2", "insoles",
+]
+
+EXTRA_REMOVE_BRANDS = [
+    "Bluegrass", "Chamois Butt'r", "Clif", "Delta", "Kids Ride Shotgun",
+    "MET", "Motorex", "Onguard", "Rockstop", "Squirt", "Veloforte",
+    "Moon Sport", "Orange Seal", "BLACK X", "Bryton", "Coast Optics",
+    "Rozone", "Topeak",
+]
+
+EXTRA_DROP_COLUMNS = [
+    "Account", "Category_Path", "Barcode_2", "Assorted", "Currency",
+    "Order", "Box Check", "Line Total", "Filter Size 2",
+]
+
+def clean_extra_uk(df):
+    """
+    Cleans Extra (UK) supplier data. Single input file, rules applied in order:
+      1. Remove rows by Category (exact match + contains match), case-insensitive.
+      3. Remove rows by Brand (trimmed exact match), case-insensitive.
+      4. Remove rows where Barcode_1 is blank AND (Cost Price OR SRP is 0 / #N/A).
+      5. Drop unwanted columns, plus any header-less column that is all zeros.
+    En/em dashes and curly apostrophes are normalised so rule lists match real data.
+    Returns: (cleaned_df, removed_df, stats)
+    """
+    df = clean_column_names(df)
+    df = df.fillna('')
+
+    stats = {'info_file_rows': len(df)}
+
+    def get_col(*names):
+        for name in names:
+            target = name.lower().replace(' ', '').replace('_', '')
+            matches = [c for c in df.columns if c.lower().replace(' ', '').replace('_', '') == target]
+            if matches:
+                return matches[0]
+        return None
+
+    cat_col = get_col('Category')
+    brand_col = get_col('Brand')
+    barcode_col = get_col('Barcode_1', 'Barcode 1', 'Barcode1', 'Barcode')
+    cost_col = get_col('Cost Price', 'CostPrice')
+    srp_col = get_col('SRP')
+
+    removal_mask = pd.Series(False, index=df.index)
+    removal_reason = pd.Series('', index=df.index)
+
+    def add_removals(mask, reason):
+        new = mask & ~removal_mask
+        removal_reason[new] = reason
+        return removal_mask | mask
+
+    # 1. Category removal — exact (case-insensitive, dash-normalised)
+    if cat_col:
+        cats_norm = df[cat_col].map(lambda v: _normalize_dashes(v).lower())
+        exact_set = {_normalize_dashes(c).lower() for c in EXTRA_REMOVE_CATEGORIES_EXACT}
+        removal_mask = add_removals(cats_norm.isin(exact_set), 'Category removed (exact)')
+
+        # Category removal — contains (case-insensitive)
+        cats_lower = df[cat_col].astype(str).str.lower()
+        for term in EXTRA_REMOVE_CATEGORIES_CONTAINS:
+            mask_contains = cats_lower.str.contains(term.lower(), regex=False, na=False)
+            removal_mask = add_removals(mask_contains, f'Category contains "{term}"')
+
+    # 3. Brand removal — trimmed exact match (case-insensitive, apostrophe-normalised)
+    if brand_col:
+        brands_norm = df[brand_col].map(lambda v: _normalize_apostrophes(v).strip().lower())
+        brand_set = {_normalize_apostrophes(b).strip().lower() for b in EXTRA_REMOVE_BRANDS}
+        removal_mask = add_removals(brands_norm.isin(brand_set), 'Brand removed')
+
+    # 4. Barcode_1 blank AND (Cost Price OR SRP is 0 / #N/A)
+    if barcode_col:
+        barcode_blank = df[barcode_col].astype(str).str.strip() == ''
+        price_bad = pd.Series(False, index=df.index)
+        if cost_col:
+            price_bad = price_bad | df[cost_col].map(_is_zero_or_na)
+        if srp_col:
+            price_bad = price_bad | df[srp_col].map(_is_zero_or_na)
+        removal_mask = add_removals(barcode_blank & price_bad, 'Blank Barcode_1 with zero/NA price')
+
+    all_removed = df[removal_mask].copy()
+    all_removed['Removal Reason'] = removal_reason[removal_mask]
+    df = df[~removal_mask].copy()
+
+    # 5. Column removal
+    cols_to_drop = [c for c in df.columns if c.strip() in EXTRA_DROP_COLUMNS]
+
+    # Also drop any header-less column whose values are all zero
+    for c in df.columns:
+        if c in cols_to_drop:
+            continue
+        header = str(c).strip()
+        is_no_header = header == '' or header.lower().startswith('unnamed:')
+        if not is_no_header:
+            continue
+        vals = df[c].astype(str).str.strip()
+        non_empty = vals[vals != '']
+        if len(non_empty) > 0 and non_empty.map(_is_zero).all():
+            cols_to_drop.append(c)
+
+    df = df.drop(columns=cols_to_drop)
+
+    stats['removed_rows'] = len(all_removed)
+    stats['dropped_columns'] = cols_to_drop
+
+    df['Supplier'] = 'Extra UK'
+    all_removed['Supplier'] = 'Extra UK (Removed)'
+
+    return df, all_removed, stats
+
+
 # ===== COMMENTED OUT - NOT IN USE =====
-# def clean_extra_uk(df):
-#     """
-#     Cleans Extra UK supplier data according to updated rules.
-#     """
-#     pass
-#
 # def standardize_schema(df, supplier_name):
 #     """
 #     Standardize the cleaned supplier dataframe into the final 19-column Lightspeed schema.

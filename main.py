@@ -7,7 +7,7 @@ import pandas as pd
 import shutil
 import uuid
 
-from processor import read_file_safely, clean_chicken, clean_ison, clean_zyrofisher
+from processor import read_file_safely, clean_chicken, clean_ison, clean_zyrofisher, clean_extra_uk
 
 app = FastAPI(title="Chicken Supplier Cleaning API")
 
@@ -167,6 +167,69 @@ async def clean_ison_file(ison: UploadFile = File(None)):
             },
             "before_rows": int(len(ison_df)),
             "after_rows": int(len(ison_clean)),
+            "download": f"/api/download/{output_file}",
+            "downloads": downloads
+        })
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(error_trace)
+        return JSONResponse({
+            "status": "error",
+            "message": f"Error: {str(e)}",
+            "detail": error_trace
+        }, status_code=500)
+    finally:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+@app.post("/api/clean_extra_uk")
+async def clean_extra_uk_file(extra_uk: UploadFile = File(None)):
+    job_id = str(uuid.uuid4())
+    temp_dir = os.path.join(tempfile.gettempdir(), f"extra_uk_clean_{job_id}")
+    os.makedirs(temp_dir, exist_ok=True)
+
+    try:
+        if not (extra_uk and getattr(extra_uk, "filename", None)):
+            return JSONResponse({"status": "error", "message": "No file uploaded"}, status_code=400)
+
+        extra_path = os.path.join(temp_dir, extra_uk.filename)
+        with open(extra_path, "wb") as buffer:
+            shutil.copyfileobj(extra_uk.file, buffer)
+
+        extra_df = read_file_safely(extra_path)
+        if extra_df.empty:
+            return JSONResponse({"status": "error", "message": "No data in file"}, status_code=400)
+
+        extra_clean, removed_items, stats = clean_extra_uk(extra_df)
+
+        if extra_clean.empty:
+            return JSONResponse({"status": "error", "message": "No data after cleaning"}, status_code=400)
+
+        output_file = "Extra_UK_Cleaned.csv"
+        extra_clean.to_csv(os.path.join(RESULTS_DIR, output_file), index=False)
+
+        removed_file = "Extra_UK_Removed_Items.csv"
+        if not removed_items.empty:
+            removed_items.to_csv(os.path.join(RESULTS_DIR, removed_file), index=False)
+
+        downloads = {"cleaned": f"/api/download/{output_file}"}
+        if not removed_items.empty:
+            downloads["removed"] = f"/api/download/{removed_file}"
+
+        return JSONResponse({
+            "status": "success",
+            "message": "Files cleaned successfully",
+            "job_id": job_id,
+            "insights": {
+                "info_file_rows": int(stats.get('info_file_rows', 0)),
+                "cost_file_rows": 0,
+                "matched_with_price": 0,
+                "missing_vital_info": 0,
+                "removed_rows": int(stats.get('removed_rows', 0))
+            },
+            "before_rows": int(len(extra_df)),
+            "after_rows": int(len(extra_clean)),
             "download": f"/api/download/{output_file}",
             "downloads": downloads
         })
