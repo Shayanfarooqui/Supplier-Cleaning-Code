@@ -451,7 +451,7 @@ def clean_zyrofisher(info_df, price_df):
         removal_mask = add_removals(brands.isin([b.lower() for b in ZYRO_REMOVE_BRANDS]), 'Brand removed')
 
     # 3. Category filter (exact match)
-    cat_col = get_col(df, 'Category')
+    cat_col = get_col(df, 'ProductCategory')
     if cat_col:
         cats = df[cat_col].astype(str).str.strip().str.lower()
         removal_mask = add_removals(cats.isin([c.lower() for c in ZYRO_REMOVE_CATEGORIES]), 'Category removed')
