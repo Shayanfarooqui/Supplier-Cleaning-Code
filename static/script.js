@@ -137,6 +137,11 @@ document.addEventListener('DOMContentLoaded', () => {
             requiredFields: ['ison'],
             apiEndpoint: '/api/clean_ison',
             files: ['ison']
+        },
+        madison: {
+            requiredFields: ['madison'],
+            apiEndpoint: '/api/clean_madison',
+            files: ['madison']
         }
     };
 
